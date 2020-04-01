@@ -1,0 +1,151 @@
+"""the script to pull down all your tweets based on keywords or hashtags"""
+"""RUN THIS IN A CODE EDITOR SUCH AS SUBLIME OR ATOM"""
+
+import tweepy
+from tweepy import OAuthHandler
+import pandas as pd
+import time
+import json
+import numpy as np
+
+access_token = ''
+access_token_secret = ''
+consumer_key = ''
+consumer_secret = ''
+
+auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+auth.set_access_token(access_token, access_token_secret)
+
+api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
+
+tweets = []
+
+count = 1
+
+for tweet in tweepy.Cursor(api.search, q="airborne", count=450, since='2020-03-22').items(100000):
+	# print(json.dumps(tweet._json, indent=3))
+	# print(tweet.user._json['created_at'])
+
+	# print('-------------------------------------------------------')
+	print(count)
+	count += 1
+	try: 
+
+		if hasattr(tweet, 'retweeted_status'): 
+			data = [tweet.created_at, tweet.id_str, tweet.retweet_count, tweet.text, tweet.user._json['screen_name'], tweet.user._json['name'], tweet.user._json['created_at'], tweet.user._json['followers_count'], \
+			tweet.user._json['friends_count'], tweet.user._json['location'], tweet.user._json['description'], tweet.retweeted_status.text, 
+			tweet.retweeted_status.user.screen_name, tweet.retweeted_status.user.location, tweet.retweeted_status.user.description, tweet.retweeted_status.created_at, tweet.retweeted_status.user.created_at]
+			data = tuple(data)
+			tweets.append(data)
+		else: 
+			data = [tweet.created_at, tweet.id_str, tweet.retweet_count, tweet.text, tweet.user._json['screen_name'], tweet.user._json['name'], tweet.user._json['created_at'], tweet.user._json['followers_count'], \
+			 tweet.user._json['friends_count'], tweet.user._json['location'], tweet.user._json['description'], \
+			 np.nan, np.nan, np.nan, np.nan, np.nan, np.nan]
+			data = tuple(data)
+			tweets.append(data)
+
+	except tweepy.TweepError as e:
+		print(e.reason)
+		time.sleep(180)
+		continue
+
+	except StopIteration:
+		break
+
+df = pd.DataFrame(tweets, columns = ['created_at','tweet_id', 'retweet_count', 'tweet_text', 'screen_name', 'name', 'account_creation_date', 'followers_count', 'friends_count', 'location', 'user_description', 'original_tweet_text', 'original_tweet_user_screen_name', \
+	'original_tweet_user_location', 'original_tweet_user_description', 'original_tweet_user_created_at', 'original_user_account_created_at'])
+
+df.to_csv('/Users/rorysmith/Desktop/hashtag_scrapes/airborne.csv', index=False) 
+
+# print(len(tweets))
+print('finished')
+
+
+#ANALYSIS IN JUPYTER NOTEBOOK
+# open your file in Jupyer notebook
+df1 = pd.read_csv('/Users/rorysmith/Desktop/hashtag_scrapes/airborne.csv', encoding='utf-8', engine='python')
+
+#see how many rows there are to make sure it pulled all the data
+df1.shape[0]
+
+"""sometimes Twitter's API spits back strings for dates, this is a way of filtering those out by searching
+for 20, as in the year 2020, in the date column"""
+df1 = df1[df1.created_at.str.contains('20')]
+
+"""check to make sure the number of rows is the same as the number you inputted when scraping the data.
+Sometimes there is faulty data and the number is lower after cleaning. That is ok."""
+df1.shape[0]
+
+# get the top tweets in the dataset
+df1.tweet_text.value_counts().head(20).reset_index()
+
+# changing the time stamp for account creation date to month
+df1['account_creation_date_month'] = (pd.to_datetime(pd.to_datetime(df1.account_creation_date)
+                                                     .apply(lambda x: x.strftime('%Y-%m'))))
+   
+# get individual accounts in the dataset
+accounts = df1.copy()
+accounts = accounts.drop_duplicates(['screen_name'], keep='first')
+
+#see how many unique accounts are in the dataset
+accounts.shape[0]
+
+#see when the accounts were created to see if there is anything fishy
+accounts.account_creation_date_month.value_counts().head(20)
+
+# use a bit of regex to parse out the hashtags in the tweets and create a new column
+import re
+df1['hashtags'] = df1['tweet_text'].apply(lambda x: str(re.findall(r"#(\w+)", str(x))))
+
+# functions for aggregating the hashtags and then visualizin the top 20 most frequent in the dataset
+def hashtags(col):
+    
+    col = col.apply(lambda x: ast.literal_eval(x))
+    
+    def mapper(s):
+        all_vals = list()
+
+        for l in s:
+            [all_vals.append(x.lower()) for x in l]
+
+        all_vals.sort()
+        return all_vals
+
+    def reducer(l):
+        all_counts = dict()
+        prev = l[0]
+        count = 0
+
+        for x in l:
+            if x == prev:
+                count = count + 1
+            else:
+                all_counts[prev] = count
+                prev = x
+                count = 1      
+
+        all_counts[prev] = count
+
+        return all_counts
+    
+    mapped = mapper(col)
+    reduced = reducer(mapped)
+    reduced = dict(sorted(reduced.items(), key=lambda x: x[1], reverse=True))
+    
+    df = pd.DataFrame(list(reduced.items()), columns=['hashtag', 'number']).head(20).sort_values('number', ascending=True)
+    return df
+
+def bar_chart(tags, number, title):
+    plt.figure(figsize=(10,5))
+    plt.barh(tags, number)
+    plt.title(title)
+    plt.xlabel('number of times hashtag appeared')
+    plt.show()
+    
+""""filter out empty lists and use the functions to get the tags and then visualize them"""
+new = df1[df1.hashtags.map(lambda x: len(x) >= 1)]
+tags = hashtags(new.hashtags)
+
+#visualize the top hashtags in the datasert
+plt.figure(figsize=(10,5))
+bar_chart(tags.hashtag, tags.number, 'top hashtags in airborne dataset')

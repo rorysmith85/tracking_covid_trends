@@ -1,0 +1,59 @@
+"""here is the Python/Pandas code for the Crowdtangle portion of the webinar"""
+import pandas as pd
+import ast
+import matplotlib.pyplot as plt
+import matplotlib.style as style
+style.use('fivethirtyeight')
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.max_rows', 500)
+pd.options.display.max_colwidth = 200
+
+# a function to clean the data and change some of the number and date formats
+def crowdtangle_clean(csv, kind):
+    df = pd.read_csv(csv)
+    df.columns = ['Page Name', 'User Name', 'Facebook Id', 'Likes at Posting', 'Created',
+       'Type', 'Likes', 'Comments', 'Shares', 'Love', 'Wow', 'Haha', 'Sad',
+       'Angry', 'Thankful', 'Video Share Status', 'Post Views', 'Total Views',
+       'Total Views for all Crossposts', 'Video Length', 'URL', 'Message',
+       'Link', 'Final Link', 'Link Text', 'Description', 'Sponsor Id',
+       'Sponsor Name', 'interactions',
+       'total_interactions']
+    df['type'] = kind
+    df['total_interactions'] = df.total_interactions.astype(str).str.replace(',', '').apply(pd.to_numeric)
+    df['created'] = pd.to_datetime(pd.to_datetime(df.Created).apply(lambda x: x.strftime('%Y-%m-%d')))
+    df['month'] = pd.to_datetime(pd.to_datetime(df.Created).apply(lambda x: x.strftime('%Y-%m')))
+    return df
+
+# open each of the csvs up in two separate dataframes
+pages = crowdtangle_clean('pages_temp.csv', 'pages')
+groups = crowdtangle_clean('groups_temp.csv', 'groups')
+
+# concatenate or merge the two dataframes
+df = pd.concat([pages, groups])
+
+#see how many rows/posts are in the dataset
+df.shape[0]
+
+#get a sum of the shares in the dataset
+df.Shares.sum()
+
+#see if pages or groups are producing more content
+df.type.value_counts()
+
+#get basic statistical info on the dataset
+df.describe()
+
+# groups and sums all the shares by day and then visualizes this data on a line graph
+plt.figure(figsize=(10,5))
+plt.title('shares per day')
+df.groupby('created').Shares.sum().plot()
+
+# get the most shared posts from the dataset
+top = df[['Page Name', 'Facebook Id', 'Created', 'URL', 'Shares']].sort_values(by='Shares', ascending=False).head(10)
+top
+
+#get the top 10 pages/groups that are posting the most about this
+df['Page Name'].value_counts().head(10)
+
+#get the top links in the dataset
+df.Link.value_counts().head(10)
